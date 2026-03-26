@@ -12,7 +12,8 @@ class ElenaState(TypedDict):
 
     Attributes:
         messages: Conversation history with automatic message merging
-        user_id: Current user's ID
+        user_id: Current user's external ID
+        internal_user_id: Current user's internal UUID (for DB operations)
         session_id: Current conversation session ID
         memories: Retrieved relevant memories from past conversations
         current_emotion: Elena's current emotional state
@@ -26,6 +27,7 @@ class ElenaState(TypedDict):
 
     # User context
     user_id: str
+    internal_user_id: str | None  # UUID string for DB operations
     session_id: str
 
     # Memory & RAG (dict with 'content' and optional 'feeling' keys)
@@ -44,11 +46,19 @@ class ElenaState(TypedDict):
 def create_initial_state(
     user_id: str,
     session_id: str,
+    internal_user_id: str | None = None,
 ) -> ElenaState:
-    """Create initial state for a new conversation."""
+    """Create initial state for a new conversation.
+
+    Args:
+        user_id: External user identifier.
+        session_id: Conversation session ID.
+        internal_user_id: Internal user UUID (for DB operations like memory retrieval).
+    """
     return ElenaState(
         messages=[],
         user_id=user_id,
+        internal_user_id=internal_user_id,
         session_id=session_id,
         memories=[],
         current_emotion="calm",

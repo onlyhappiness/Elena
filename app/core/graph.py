@@ -1,6 +1,10 @@
 """LangGraph conversation flow for Elena."""
 
-from langchain_anthropic import ChatAnthropic
+import logging
+from uuid import UUID
+
+# from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 
@@ -14,27 +18,82 @@ from app.core.persona import (
     EMOTIONS,
 )
 from app.core.state import ElenaState
+from app.services.memory import memory_service
 
 
-def get_llm() -> ChatAnthropic:
-    """Get configured Claude LLM instance."""
+logger = logging.getLogger(__name__)
+
+
+def get_llm() -> ChatOpenAI:
+    """Get configured OpenAI LLM instance."""
     settings = get_settings()
-    return ChatAnthropic(
-        model="claude-sonnet-4-20250514",
-        api_key=settings.anthropic_api_key,
+    # Claude version (commented out for testing with OpenAI)
+    # return ChatAnthropic(
+    #     model="claude-sonnet-4-5-20250929",
+    #     api_key=settings.anthropic_api_key,
+    #     max_tokens=1024,
+    #     temperature=0.8,
+    # )
+    return ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=settings.openai_api_key,
         max_tokens=1024,
-        temperature=0.8,  # More creative for persona
+        temperature=0.8,
     )
 
 
 async def retrieve_memories_node(state: ElenaState) -> dict:
     """Node 1: Retrieve relevant memories from past conversations.
 
-    TODO: Implement actual vector search when memory service is ready.
-    For now, returns empty memories.
+    Uses vector similarity search to find memories related to the user's message.
     """
-    # Placeholder - will be implemented with memory service
-    return {"memories": []}
+    # Get internal user ID for DB lookup
+    internal_user_id = state.get("internal_user_id")
+    if not internal_user_id:
+        logger.debug("No internal_user_id in state, skipping memory retrieval")
+        return {"memories": []}
+
+    # Get the last user message as query
+    user_messages = [msg for msg in state["messages"] if isinstance(msg, HumanMessage)]
+    if not user_messages:
+        return {"memories": []}
+
+    query = user_messages[-1].content
+
+    try:
+        # Search for relevant memories
+        raw_memories = await memory_service.search_relevant_memories(
+            user_id=UUID(internal_user_id),
+            query=query,
+            threshold=0.7,
+            limit=5,
+        )
+
+        # Transform to format expected by persona prompt
+        # Expects: {"content": str, "feeling": str (optional)}
+        memories = []
+        for mem in raw_memories:
+            memory_item = {
+                "content": mem.get("summary") or mem.get("content", ""),
+            }
+            # Map memory_type to a feeling description
+            memory_type = mem.get("memory_type", "")
+            if memory_type == "emotion":
+                memory_item["feeling"] = "감정적인 기억"
+            elif memory_type == "preference":
+                memory_item["feeling"] = "좋아하는 것"
+            elif memory_type == "fact":
+                memory_item["feeling"] = "중요한 정보"
+            memories.append(memory_item)
+
+        if memories:
+            logger.info(f"Retrieved {len(memories)} relevant memories")
+
+        return {"memories": memories}
+
+    except Exception as e:
+        logger.error(f"Failed to retrieve memories: {e}")
+        return {"memories": []}
 
 
 async def generate_response_node(state: ElenaState) -> dict:
