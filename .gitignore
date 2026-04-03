@@ -65,3 +65,6 @@ CLAUDE.md
 .claude
 .serena
 .mcp.json
+.agents
+skills-lock.json
+ARCHITECTURE.md

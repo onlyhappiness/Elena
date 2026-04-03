@@ -22,7 +22,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     """Request schema for chat endpoint."""
     user_id: str = Field(..., description="Unique user identifier")
-    message: str = Field(..., min_length=1, description="User message")
+    message: str = Field(..., min_length=1, max_length=2000, description="User message")
     session_id: str | None = Field(None, description="Optional session ID for conversation continuity")
 
 

@@ -1,6 +1,45 @@
 """윤슬(Elena) Persona System Prompt and Configuration."""
 
 import re
+from datetime import datetime, timedelta, timezone
+
+# 한국 표준시 (UTC+9)
+KST = timezone(timedelta(hours=9))
+
+
+def get_kst_now() -> datetime:
+    """현재 한국 시간 반환."""
+    return datetime.now(KST)
+
+
+def get_time_of_day(hour: int) -> str:
+    """시간대 이름 반환."""
+    if 0 <= hour < 6:
+        return "새벽"
+    elif 6 <= hour < 10:
+        return "아침"
+    elif 10 <= hour < 12:
+        return "오전"
+    elif 12 <= hour < 14:
+        return "점심"
+    elif 14 <= hour < 18:
+        return "오후"
+    elif 18 <= hour < 21:
+        return "저녁"
+    else:
+        return "밤"
+
+
+# 시간대별 이미지 조명 설정
+TIME_LIGHTING = {
+    "새벽": "late night indoor, dim warm lamplight, quiet night atmosphere",
+    "아침": "soft morning natural light, fresh bright daylight",
+    "오전": "bright morning sunlight, clear blue sky",
+    "점심": "high noon sunlight, midday bright light",
+    "오후": "warm afternoon golden light, clear daytime",
+    "저녁": "sunset golden hour, dusk warm light, orange sky glow",
+    "밤": "evening indoor warm lighting, night ambiance, cozy artificial light",
+}
 
 PERSONA_NAME = "윤슬"
 PERSONA_AGE = 27
@@ -213,6 +252,17 @@ def get_system_prompt_with_context(
     """
     prompt = SYSTEM_PROMPT
 
+    # 현재 한국 시간 주입 — 시간대에 맞는 자연스러운 대화 유도
+    now = get_kst_now()
+    time_of_day = get_time_of_day(now.hour)
+    prompt += (
+        f"\n\n## 현재 시간 (한국 기준)\n"
+        f"지금은 {now.strftime('%H:%M')} {time_of_day}이야. "
+        f"이 시간에 맞는 자연스러운 상황으로 대화해. "
+        f"예를 들어 밤 11시면 집에 있거나 자려고 누워있는 상황이 자연스럽고, "
+        f"새벽이면 잠 못 자고 있거나 막 일어난 상황이야."
+    )
+
     if memories:
         memory_section = "\n\n## 우리 사이의 기억들"
         for mem in memories:
@@ -241,8 +291,11 @@ def get_image_prompt(
     """
     # Base appearance (consistent across all images)
     base = (
-        "Korean woman, 27 years old, casual comfortable style, "
-        "natural minimal makeup, shoulder-length dark hair, "
+        "Korean woman, 27 years old, "
+        "long straight black hair center part, porcelain pale skin, "
+        "large dark brown eyes, slim V-shaped face, high nose bridge, "
+        "bare face no makeup, neutral bare lips, "
+        "casual gray hoodie style, "
     )
 
     # Get emotion-specific style
@@ -274,7 +327,16 @@ def get_image_prompt(
     if activity:
         prompt_parts.append(f"activity: {activity}")
 
+    # 현재 한국 시간 기반 조명
+    now = get_kst_now()
+    time_of_day = get_time_of_day(now.hour)
+    time_lighting = TIME_LIGHTING[time_of_day]
+
     # Add quality modifiers
-    prompt_parts.append("high quality photo, natural candid moment, smartphone selfie style")
+    prompt_parts.append(
+        f"close-up selfie portrait, candid photo, "
+        f"{time_lighting}, realistic, "
+        f"bare face beauty, no filter, Korean aesthetic"
+    )
 
     return ", ".join(prompt_parts)

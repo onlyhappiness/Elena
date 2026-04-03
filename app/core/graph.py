@@ -19,6 +19,7 @@ from app.core.persona import (
 )
 from app.core.state import ElenaState
 from app.services.memory import memory_service
+from app.services.image import generate_selfie
 
 
 logger = logging.getLogger(__name__)
@@ -173,19 +174,16 @@ async def check_image_needed_node(state: ElenaState) -> dict:
 
 
 async def generate_image_node(state: ElenaState) -> dict:
-    """Node 4: Generate selfie using fal.ai.
-
-    TODO: Implement actual fal.ai integration.
-    For now, returns placeholder.
-    """
+    """Node 4: Generate selfie using fal.ai."""
     if not state.get("should_generate_image"):
         return {"image_url": None}
 
-    # Placeholder - will be implemented with fal.ai service
-    # image_url = await fal_service.generate_selfie(state["image_prompt"])
-    print(f"[DEBUG] Image prompt: {state.get('image_prompt')}")
+    image_prompt = state.get("image_prompt")
+    if not image_prompt:
+        return {"image_url": None}
 
-    return {"image_url": None}
+    image_url = await generate_selfie(image_prompt)
+    return {"image_url": image_url}
 
 
 def route_after_response(state: ElenaState) -> str:
