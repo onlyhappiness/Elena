@@ -1,7 +1,10 @@
 """LangGraph conversation flow for Elena."""
 
 import logging
+from functools import lru_cache
 from uuid import UUID
+
+import openai
 
 # from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -25,8 +28,9 @@ from app.services.image import generate_selfie
 logger = logging.getLogger(__name__)
 
 
+@lru_cache
 def get_llm() -> ChatOpenAI:
-    """Get configured OpenAI LLM instance."""
+    """Get configured OpenAI LLM instance (cached singleton)."""
     settings = get_settings()
     # Claude version (commented out for testing with OpenAI)
     # return ChatAnthropic(
@@ -40,6 +44,7 @@ def get_llm() -> ChatOpenAI:
         api_key=settings.openai_api_key,
         max_tokens=1024,
         temperature=0.8,
+        timeout=30,
     )
 
 
@@ -111,8 +116,21 @@ async def generate_response_node(state: ElenaState) -> dict:
     messages = [SystemMessage(content=system_prompt)]
     messages.extend(state["messages"])
 
-    # Generate response
-    response = await llm.ainvoke(messages)
+    # Generate response (1회 재시도: 네트워크/타임아웃 오류만)
+    response = None
+    for attempt in range(2):
+        try:
+            response = await llm.ainvoke(messages)
+            break
+        except (openai.APIConnectionError, openai.APITimeoutError) as e:
+            if attempt == 0:
+                logger.warning(f"LLM 호출 실패 (시도 1/2), 재시도 중: {e}")
+                continue
+            logger.error(f"LLM 호출 최종 실패 (네트워크 오류): {e}")
+            raise
+        except Exception as e:
+            logger.error(f"LLM 호출 실패 (재시도 불가): {e}")
+            raise
 
     # Detect emotion from response
     detected_emotion = detect_emotion(response.content)

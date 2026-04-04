@@ -1,4 +1,4 @@
--- Project Elena - Supabase Database Schema
+-- Project Elena - PostgreSQL Schema
 -- pgvector extension for RAG functionality
 
 -- Enable pgvector extension
@@ -134,18 +134,3 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- ============================================
--- Row Level Security (RLS)
--- ============================================
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
-
--- Service role can access all data
-CREATE POLICY "Service role full access" ON users FOR ALL USING (true);
-CREATE POLICY "Service role full access" ON conversations FOR ALL USING (true);
-CREATE POLICY "Service role full access" ON messages FOR ALL USING (true);
-CREATE POLICY "Service role full access" ON memories FOR ALL USING (true);
-CREATE POLICY "Service role full access" ON user_preferences FOR ALL USING (true);

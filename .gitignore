@@ -68,3 +68,5 @@ CLAUDE.md
 .agents
 skills-lock.json
 ARCHITECTURE.md
+
+env/

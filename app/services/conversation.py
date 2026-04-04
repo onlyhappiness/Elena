@@ -1,22 +1,27 @@
 """Conversation persistence service for Elena."""
 
+import logging
 from uuid import UUID
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from app.db.supabase import (
+from app.db.postgres import (
     conversation_repo,
     message_repo,
     user_repo,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ConversationService:
-    """Service for managing conversation persistence with Supabase."""
+    """Service for managing conversation persistence."""
 
     async def get_or_create_user(self, external_id: str) -> dict:
         """Get existing user or create a new one."""
-        return await user_repo.get_or_create(external_id)
+        user = await user_repo.get_or_create(external_id)
+        logger.debug(f"[User] id={user['id']} external_id={external_id}")
+        return user
 
     async def get_or_create_conversation(
         self, user_id: UUID, session_id: str | None = None
@@ -31,13 +36,14 @@ class ConversationService:
             Conversation dict with 'id' and other fields.
         """
         if session_id:
-            # Try to get existing conversation
             conversation = await conversation_repo.get(UUID(session_id))
             if conversation:
+                logger.debug(f"[Conversation] 기존 세션 재사용: {session_id}")
                 return conversation
 
-        # Create new conversation
-        return await conversation_repo.create(user_id)
+        conversation = await conversation_repo.create(user_id)
+        logger.info(f"[Conversation] 새 세션 생성: {conversation['id']}")
+        return conversation
 
     async def load_recent_messages(
         self, conversation_id: UUID, limit: int = 20

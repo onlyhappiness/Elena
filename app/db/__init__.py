@@ -1,1 +1,1 @@
-"""Database module - Supabase integration."""
+"""Database module - PostgreSQL (asyncpg)."""

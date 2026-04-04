@@ -1,10 +1,14 @@
 """Embedding service for text vectorization using OpenAI."""
 
+import logging
 from functools import lru_cache
 
+import openai
 from openai import AsyncOpenAI
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 # Default embedding model and dimensions
 EMBEDDING_MODEL = "text-embedding-3-small"
@@ -16,7 +20,7 @@ class EmbeddingService:
 
     def __init__(self):
         settings = get_settings()
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=10.0)
         self.model = EMBEDDING_MODEL
         self.dimensions = EMBEDDING_DIMENSIONS
 
@@ -29,12 +33,23 @@ class EmbeddingService:
         Returns:
             A list of floats representing the embedding vector.
         """
-        response = await self.client.embeddings.create(
-            model=self.model,
-            input=text,
-            dimensions=self.dimensions,
-        )
-        return response.data[0].embedding
+        for attempt in range(2):
+            try:
+                response = await self.client.embeddings.create(
+                    model=self.model,
+                    input=text,
+                    dimensions=self.dimensions,
+                )
+                return response.data[0].embedding
+            except (openai.APIConnectionError, openai.APITimeoutError) as e:
+                if attempt == 0:
+                    logger.warning(f"임베딩 호출 실패 (시도 1/2), 재시도 중: {e}")
+                    continue
+                logger.error(f"임베딩 호출 최종 실패: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"임베딩 호출 실패 (재시도 불가): {e}")
+                raise
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for multiple texts in a single API call.
@@ -48,14 +63,24 @@ class EmbeddingService:
         if not texts:
             return []
 
-        response = await self.client.embeddings.create(
-            model=self.model,
-            input=texts,
-            dimensions=self.dimensions,
-        )
-        # Sort by index to maintain order
-        sorted_data = sorted(response.data, key=lambda x: x.index)
-        return [item.embedding for item in sorted_data]
+        for attempt in range(2):
+            try:
+                response = await self.client.embeddings.create(
+                    model=self.model,
+                    input=texts,
+                    dimensions=self.dimensions,
+                )
+                sorted_data = sorted(response.data, key=lambda x: x.index)
+                return [item.embedding for item in sorted_data]
+            except (openai.APIConnectionError, openai.APITimeoutError) as e:
+                if attempt == 0:
+                    logger.warning(f"임베딩(batch) 호출 실패 (시도 1/2), 재시도 중: {e}")
+                    continue
+                logger.error(f"임베딩(batch) 호출 최종 실패: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"임베딩(batch) 호출 실패 (재시도 불가): {e}")
+                raise
 
 
 @lru_cache

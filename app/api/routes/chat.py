@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage
 
 from app.core.graph import elena_graph
 from app.core.state import create_initial_state
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat import ChatRequest, ChatResponse, ChatHistoryResponse, DeleteSessionResponse
 from app.services.conversation import conversation_service
 from app.services.memory import memory_service
 
@@ -43,19 +43,27 @@ async def _process_memories_background(
         logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    summary="윤슬에게 메시지 전송",
+    description=(
+        "사용자 메시지를 받아 윤슬의 응답을 반환합니다.\n\n"
+        "**처리 흐름**\n"
+        "1. 유저 및 세션 조회/생성\n"
+        "2. 관련 장기 기억 검색 (RAG)\n"
+        "3. 윤슬 페르소나로 응답 생성\n"
+        "4. 셀카 필요 여부 판단 → fal.ai 이미지 생성\n"
+        "5. 대화 저장 (메모리 추출은 백그라운드)\n\n"
+        "**응답 시간 목표**: 텍스트 < 5초 / 이미지 포함 < 10초"
+    ),
+    responses={
+        200: {"description": "윤슬의 응답 (이미지 생성 실패 시에도 텍스트는 항상 반환)"},
+        500: {"description": "LLM 응답 생성 실패"},
+    },
+    tags=["chat"],
+)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Send a message to Elena and get her response.
-
-    This endpoint handles the main conversation flow:
-    1. Gets or creates user and conversation in Supabase
-    2. Loads recent conversation history
-    3. Retrieves relevant memories (RAG)
-    4. Generates Elena's response with persona
-    5. Checks if image generation is needed
-    6. Saves messages to Supabase
-    7. Returns response with optional selfie URL
-    """
     try:
         # Get or create user
         user = await conversation_service.get_or_create_user(request.user_id)
@@ -69,9 +77,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
         conversation_id = UUID(conversation["id"])
         session_id = str(conversation_id)
 
-        # Load recent messages from DB
-        previous_messages = await conversation_service.load_recent_messages(
-            conversation_id, limit=20
+        # 메시지 로드와 저장을 병렬로 처리
+        previous_messages, _ = await asyncio.gather(
+            conversation_service.load_recent_messages(conversation_id, limit=20),
+            conversation_service.save_user_message(
+                conversation_id=conversation_id,
+                content=request.message,
+            ),
         )
 
         # Create state with loaded messages
@@ -84,12 +96,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
         # Add user message to state
         state["messages"].append(HumanMessage(content=request.message))
-
-        # Save user message to DB
-        await conversation_service.save_user_message(
-            conversation_id=conversation_id,
-            content=request.message,
-        )
 
         # Run the conversation graph
         result = await elena_graph.ainvoke(state)
@@ -143,9 +149,18 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
 
 
-@router.get("/chat/{session_id}/history")
+@router.get(
+    "/chat/{session_id}/history",
+    response_model=ChatHistoryResponse,
+    summary="대화 히스토리 조회",
+    responses={
+        200: {"description": "세션의 전체 메시지 목록"},
+        400: {"description": "유효하지 않은 session_id 형식"},
+        404: {"description": "존재하지 않는 세션"},
+    },
+    tags=["chat"],
+)
 async def get_chat_history(session_id: str):
-    """Get conversation history for a session."""
     try:
         conversation_id = UUID(session_id)
     except ValueError:
@@ -158,7 +173,7 @@ async def get_chat_history(session_id: str):
 
     if not history:
         # Check if conversation exists
-        from app.db.supabase import conversation_repo
+        from app.db.postgres import conversation_repo
         conversation = await conversation_repo.get(conversation_id)
         if not conversation:
             raise HTTPException(
@@ -172,12 +187,18 @@ async def get_chat_history(session_id: str):
     }
 
 
-@router.delete("/chat/{session_id}")
+@router.delete(
+    "/chat/{session_id}",
+    response_model=DeleteSessionResponse,
+    summary="대화 세션 종료",
+    description="세션을 비활성화합니다. 데이터는 보존되며 실제 삭제는 하지 않습니다.",
+    responses={
+        200: {"description": "세션 비활성화 성공"},
+        400: {"description": "유효하지 않은 session_id 형식"},
+    },
+    tags=["chat"],
+)
 async def delete_session(session_id: str):
-    """Delete a conversation session.
-
-    Note: This marks the conversation as inactive rather than deleting data.
-    """
     try:
         conversation_id = UUID(session_id)
     except ValueError:
@@ -186,11 +207,9 @@ async def delete_session(session_id: str):
             detail="Invalid session ID format",
         )
 
-    from app.db.supabase import conversation_repo
+    from app.db.postgres import conversation_repo
 
     # Mark conversation as inactive
-    conversation_repo.table.update({"is_active": False}).eq(
-        "id", str(conversation_id)
-    ).execute()
+    await conversation_repo.deactivate(conversation_id)
 
     return {"status": "deleted", "session_id": session_id}

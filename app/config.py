@@ -16,6 +16,7 @@ class Settings(BaseSettings):
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # Anthropic
@@ -24,10 +25,8 @@ class Settings(BaseSettings):
     # OpenAI (for embeddings)
     openai_api_key: str
 
-    # Supabase
-    supabase_url: str
-    supabase_anon_key: str
-    supabase_service_key: str | None = None
+    # PostgreSQL
+    database_url: str  # postgresql://user:password@host:port/dbname
 
     # fal.ai
     fal_key: str | None = None

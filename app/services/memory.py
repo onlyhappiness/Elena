@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import get_settings
-from app.db.supabase import memory_repo
+from app.db.postgres import memory_repo
 from app.services.embedding import get_embedding_service
 
 logger = logging.getLogger(__name__)
@@ -174,6 +174,17 @@ class MemoryService:
                 logger.info(f"[Memory] Generating embedding for: {content[:50]}...")
                 embedding = await self.embedding_service.embed_text(content)
 
+                # 중복 저장 방지: 유사도 0.95 이상인 기억이 이미 있으면 스킵
+                duplicates = await memory_repo.search_similar(
+                    user_id=user_id,
+                    query_embedding=embedding,
+                    threshold=0.95,
+                    limit=1,
+                )
+                if duplicates:
+                    logger.debug(f"[Memory] 중복 기억 감지 — 저장 스킵: {content[:50]}...")
+                    continue
+
                 # Store in database
                 logger.info("[Memory] Storing memory to DB...")
                 created = await memory_repo.create(
@@ -210,19 +221,20 @@ class MemoryService:
 
         Returns:
             List of relevant memories with similarity scores.
+            실패 시 빈 리스트 반환 (graceful degradation).
         """
-        # Generate embedding for the query
-        query_embedding = await self.embedding_service.embed_text(query)
-
-        # Search in database
-        memories = await memory_repo.search_similar(
-            user_id=user_id,
-            query_embedding=query_embedding,
-            threshold=threshold,
-            limit=limit,
-        )
-
-        return memories
+        try:
+            query_embedding = await self.embedding_service.embed_text(query)
+            memories = await memory_repo.search_similar(
+                user_id=user_id,
+                query_embedding=query_embedding,
+                threshold=threshold,
+                limit=limit,
+            )
+            return memories
+        except Exception as e:
+            logger.warning(f"[Memory] 기억 검색 실패 — 기억 없이 진행: {e}")
+            return []
 
 
 # Singleton instance
