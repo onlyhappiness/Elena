@@ -42,6 +42,9 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
 
+    docs_url = None if settings.is_production else "/docs"
+    redoc_url = None if settings.is_production else "/redoc"
+
     app = FastAPI(
         title="Project Elena — 윤슬 AI Companion",
         description=(
@@ -57,6 +60,8 @@ def create_app() -> FastAPI:
         debug=settings.debug,
         lifespan=lifespan,
         openapi_tags=OPENAPI_TAGS,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
     )
 
     # CORS middleware
