@@ -33,7 +33,10 @@ class Settings(BaseSettings):
 
     # App
     app_env: str = "development"
-    debug: bool = True
+
+    @property
+    def debug(self) -> bool:
+        return self.app_env != "production"
 
     @property
     def is_production(self) -> bool:
