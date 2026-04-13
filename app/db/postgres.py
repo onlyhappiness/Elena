@@ -60,6 +60,15 @@ class PostgresPool:
 class UserRepository:
     """사용자 DB 작업."""
 
+    async def get_by_external_id(self, external_id: str) -> dict | None:
+        pool = PostgresPool.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM users WHERE external_id = $1",
+                external_id,
+            )
+            return _to_dict(row) if row else None
+
     async def get_or_create(self, external_id: str, nickname: str | None = None) -> dict:
         pool = PostgresPool.get_pool()
         async with pool.acquire() as conn:

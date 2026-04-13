@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 
 import fal_client
 
@@ -10,10 +11,11 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 # MVP: 속도·가성비 우선 (Phase 2에서 flux/dev 또는 IP-Adapter로 업그레이드 고려)
-FAL_MODEL = "fal-ai/flux/schnell"
+# FAL_MODEL = "fal-ai/flux/schnell"
+FAL_MODEL = "fal-ai/nano-banana-2"
 
-# RELIABILITY.md 기준: 타임아웃 15초, 재시도 없음
-FAL_TIMEOUT = 15
+# 실측 기준: nano-banana-2 이미지 생성 22~32초 → 여유 포함 45초
+FAL_TIMEOUT = 45
 
 
 def _set_fal_credentials() -> bool:
@@ -46,13 +48,15 @@ async def generate_selfie(image_prompt: str) -> str | None:
         return None
 
     try:
+        start = time.perf_counter()
         result = await fal_client.run_async(
             FAL_MODEL,
             arguments={"prompt": image_prompt},
             timeout=FAL_TIMEOUT,
         )
+        elapsed = time.perf_counter() - start
         image_url = result["images"][0]["url"]
-        logger.info(f"이미지 생성 성공: {image_url}")
+        logger.info(f"이미지 생성 성공 ({elapsed:.1f}s): {image_url}")
         return image_url
 
     except Exception as e:

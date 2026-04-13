@@ -4,12 +4,17 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from langchain_core.messages import HumanMessage
 
 from app.core.graph import elena_graph
 from app.core.state import create_initial_state
-from app.schemas.chat import ChatRequest, ChatResponse, ChatHistoryResponse, DeleteSessionResponse
+from app.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ChatHistoryResponse,
+    DeleteSessionResponse,
+)
 from app.services.conversation import conversation_service
 from app.services.memory import memory_service
 
@@ -58,7 +63,9 @@ async def _process_memories_background(
         "**응답 시간 목표**: 텍스트 < 5초 / 이미지 포함 < 10초"
     ),
     responses={
-        200: {"description": "윤슬의 응답 (이미지 생성 실패 시에도 텍스트는 항상 반환)"},
+        200: {
+            "description": "윤슬의 응답 (이미지 생성 실패 시에도 텍스트는 항상 반환)"
+        },
         500: {"description": "LLM 응답 생성 실패"},
     },
     tags=["chat"],
@@ -102,7 +109,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
         # Extract response
         ai_messages = [
-            msg for msg in result["messages"]
+            msg
+            for msg in result["messages"]
             if hasattr(msg, "type") and msg.type == "ai"
         ]
 
@@ -143,9 +151,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Chat error for user {request.user_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing message: {str(e)}",
+            detail="메시지 처리 중 오류가 발생했습니다.",
         )
 
 
@@ -156,35 +165,32 @@ async def chat(request: ChatRequest) -> ChatResponse:
     responses={
         200: {"description": "세션의 전체 메시지 목록"},
         400: {"description": "유효하지 않은 session_id 형식"},
+        403: {"description": "해당 세션에 대한 접근 권한 없음"},
         404: {"description": "존재하지 않는 세션"},
     },
     tags=["chat"],
 )
-async def get_chat_history(session_id: str):
+async def get_chat_history(
+    session_id: str,
+    user_id: str = Query(..., description="요청자 user_id"),
+):
     try:
         conversation_id = UUID(session_id)
     except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid session ID format",
-        )
+        raise HTTPException(status_code=400, detail="Invalid session ID format")
+
+    from app.db.postgres import conversation_repo, user_repo
+
+    conversation = await conversation_repo.get(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    user = await user_repo.get_by_external_id(user_id)
+    if not user or conversation.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     history = await conversation_service.get_conversation_history(conversation_id)
-
-    if not history:
-        # Check if conversation exists
-        from app.db.postgres import conversation_repo
-        conversation = await conversation_repo.get(conversation_id)
-        if not conversation:
-            raise HTTPException(
-                status_code=404,
-                detail="Session not found",
-            )
-
-    return {
-        "session_id": session_id,
-        "messages": history,
-    }
+    return {"session_id": session_id, "messages": history}
 
 
 @router.delete(
@@ -195,21 +201,29 @@ async def get_chat_history(session_id: str):
     responses={
         200: {"description": "세션 비활성화 성공"},
         400: {"description": "유효하지 않은 session_id 형식"},
+        403: {"description": "해당 세션에 대한 접근 권한 없음"},
+        404: {"description": "존재하지 않는 세션"},
     },
     tags=["chat"],
 )
-async def delete_session(session_id: str):
+async def delete_session(
+    session_id: str,
+    user_id: str = Query(..., description="요청자 user_id"),
+):
     try:
         conversation_id = UUID(session_id)
     except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid session ID format",
-        )
+        raise HTTPException(status_code=400, detail="Invalid session ID format")
 
-    from app.db.postgres import conversation_repo
+    from app.db.postgres import conversation_repo, user_repo
 
-    # Mark conversation as inactive
+    conversation = await conversation_repo.get(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    user = await user_repo.get_by_external_id(user_id)
+    if not user or conversation.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     await conversation_repo.deactivate(conversation_id)
-
     return {"status": "deleted", "session_id": session_id}
